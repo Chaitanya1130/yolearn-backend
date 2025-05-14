@@ -1,7 +1,7 @@
 name: Promote to Prod
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # You can also use "push" or "schedule"
 
 jobs:
   push-to-prod:
@@ -14,8 +14,8 @@ jobs:
     - name: Push agent1 to prod repo
       uses: ad-m/github-push-action@v0.6.0
       with:
-        github_token: ${{ secrets.PROD_PUSH_TOKEN }}  # ✅ This is the correct input key
-        repository: Chaitanya1130/yolearn-backend
+        github_token: ${{ secrets.PROD_PUSH_TOKEN }}  # ✅ must match your secret
+        repository: Chaitanya1130/yolearn-backend      # ✅ your prod repo
         branch: main
-        directory: student/orch1/agents/agent1
+        directory: student/orch1/agents/agent1         # ✅ what to copy over
         force: true
