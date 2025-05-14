@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout test repo with PAT
+    - name: Checkout test repo using PAT
       uses: actions/checkout@v3
       with:
         token: ${{ secrets.PROD_PUSH_TOKEN }}
