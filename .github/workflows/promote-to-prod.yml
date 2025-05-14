@@ -1,0 +1,22 @@
+name: Promote to Prod
+
+on:
+  workflow_dispatch:  # Allows you to trigger manually
+
+jobs:
+  push-to-prod:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout test repo
+      uses: actions/checkout@v3
+
+    - name: Push agent1 to prod repo
+      uses: ad-m/github-push-action@v0.6.0
+      with:
+        github_token: ${{ secrets.PROD_PUSH_TOKEN }}
+        repository: Chaitanya1130/yolearn-backend
+        branch: main
+        directory: student/orch1/agents/agent1
+        commit_message: "Update agent1 to prod"
+        force: true
