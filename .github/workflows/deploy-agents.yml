@@ -1,5 +1,4 @@
 name: Auto Deploy Agents to Cloud Run
-
 on:
   push:
     paths:
@@ -8,57 +7,96 @@ on:
 jobs:
   deploy-agents:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Get full history to avoid 'bad object' errors
 
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
 
-    - name: Set up gcloud CLI
-      uses: google-github-actions/setup-gcloud@v1
-      with:
-        project_id: proj-459908
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: proj-459908
 
-    - name: Find changed agents
-      id: find-agents
-      run: |
-        echo "🔍 Detecting changes..."
-        BEFORE_SHA="${{ github.event.before }}"
-        AFTER_SHA="${{ github.sha }}"
+      - name: Find changed agents
+        id: find-agents
+        run: |
+          echo "🔍 Detecting changes..."
+          
+          # Default to using GitHub event data for commits
+          BEFORE_SHA="${{ github.event.before }}"
+          AFTER_SHA="${{ github.sha }}"
+          
+          # Fallback in case event data is invalid
+          if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            # Use the parent of current commit or default to last successful push
+            echo "No valid before SHA, using parent commit..."
+            BEFORE_SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+          fi
+          
+          echo "Comparing $BEFORE_SHA to $AFTER_SHA"
+          
+          # Try to get changed agents with error handling
+          CHANGED_AGENTS=""
+          if git cat-file -e "$BEFORE_SHA" 2>/dev/null && git cat-file -e "$AFTER_SHA" 2>/dev/null; then
+            # Both SHAs exist, proceed with diff
+            CHANGED_AGENTS=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" \
+              | grep -E '^student/orch.*/agents/agent[^/]*/' 2>/dev/null \
+              | cut -d/ -f1-5 \
+              | sort -u || echo "")
+          else
+            # Fall back to finding all agents that match the pattern
+            echo "Cannot perform git diff, finding all relevant agents..."
+            CHANGED_AGENTS=$(find student -path "student/orch*/agents/agent*" -type d -maxdepth 5 2>/dev/null \
+              | sort -u || echo "")
+          fi
+          
+          # Export the CHANGED_AGENTS env var for the next step
+          echo "CHANGED_AGENTS<<EOF" >> $GITHUB_ENV
+          echo "$CHANGED_AGENTS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          # Print the list of changed agents for logging
+          if [ -z "$CHANGED_AGENTS" ]; then
+            echo "No changed agents detected"
+          else
+            echo "Changed agents:"
+            echo "$CHANGED_AGENTS"
+          fi
 
-        echo "Comparing $BEFORE_SHA to $AFTER_SHA"
-        
-        CHANGED_AGENTS=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" \
-          | grep '^student/orch.*/agents/agent[^/]*/' \
-          | cut -d/ -f1-5 \
-          | sort -u)
-
-        echo "CHANGED_AGENTS=$CHANGED_AGENTS" >> $GITHUB_ENV
-
-    - name: Deploy changed agents to Cloud Run
-      run: |
-        echo "🚀 Agents to deploy: $CHANGED_AGENTS"
-        if [ -z "$CHANGED_AGENTS" ]; then
-          echo "No changed agents to deploy."
-          exit 0
-        fi
-
-        echo "$CHANGED_AGENTS" | while read agent_path; do
-          [ -z "$agent_path" ] && continue
-          agent_name=$(basename "$agent_path")
-          echo "🔧 Deploying $agent_name from $agent_path"
-
-          gcloud builds submit "$agent_path" \
-            --tag gcr.io/proj-459908/$agent_name
-
-          gcloud run deploy $agent_name \
-            --image gcr.io/proj-459908/$agent_name \
-            --platform managed \
-            --region us-central1 \
-            --allow-unauthenticated
-        done
-# change
+      - name: Deploy changed agents to Cloud Run
+        run: |
+          echo "🚀 Agents to deploy: $CHANGED_AGENTS"
+          
+          if [ -z "$CHANGED_AGENTS" ]; then
+            echo "No changed agents to deploy."
+            exit 0
+          fi
+          
+          echo "$CHANGED_AGENTS" | while read agent_path; do
+            [ -z "$agent_path" ] && continue
+            
+            # Ensure the agent path exists
+            if [ ! -d "$agent_path" ]; then
+              echo "⚠️ Warning: $agent_path does not exist, skipping..."
+              continue
+            fi
+            
+            agent_name=$(basename "$agent_path")
+            echo "🔧 Deploying $agent_name from $agent_path"
+            
+            # Build and deploy
+            gcloud builds submit "$agent_path" \
+              --tag gcr.io/proj-459908/$agent_name
+            
+            gcloud run deploy $agent_name \
+              --image gcr.io/proj-459908/$agent_name \
+              --platform managed \
+              --region us-central1 \
+              --allow-unauthenticated
+          done
