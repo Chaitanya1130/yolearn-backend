@@ -23,28 +23,28 @@ jobs:
       with:
         project_id: proj-459908
 
-    - name: Find all agents
+    - name: Find changed agents
       id: find-agents
       run: |
         echo "CHANGED_AGENTS<<EOF" >> $GITHUB_ENV
-        git ls-files \
+        git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
           | grep '^student/orch.*/agents/agent[^/]*' \
           | cut -d/ -f1-5 \
           | sort -u >> $GITHUB_ENV
         echo "EOF" >> $GITHUB_ENV
 
-    - name: Deploy all agents to Cloud Run
+    - name: Deploy changed agents to Cloud Run
       run: |
         echo "CHANGED_AGENTS=$CHANGED_AGENTS"
         if [ -z "$CHANGED_AGENTS" ]; then
-          echo "No agents found to deploy."
+          echo "No changed agents to deploy."
           exit 0
         fi
 
         echo "$CHANGED_AGENTS" | while read agent_path; do
           [ -z "$agent_path" ] && continue
           agent_name=$(basename "$agent_path")
-          echo "🔄 Deploying $agent_name from $agent_path"
+          echo "🚀 Deploying $agent_name from $agent_path"
 
           gcloud builds submit "$agent_path" \
             --tag gcr.io/proj-459908/$agent_name
