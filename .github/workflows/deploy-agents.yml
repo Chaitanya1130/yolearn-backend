@@ -12,6 +12,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # ✅ Needed to access commit history
 
     - name: Authenticate to Google Cloud
       uses: google-github-actions/auth@v1
@@ -26,8 +28,17 @@ jobs:
     - name: Find changed agents
       id: find-agents
       run: |
+        BEFORE_SHA=${{ github.event.before }}
+        CURRENT_SHA=${{ github.sha }}
+
+        # fallback if BEFORE_SHA is invalid
+        if ! git cat-file -e $BEFORE_SHA^{commit}; then
+          echo "⚠️ BEFORE_SHA not found, using HEAD~1"
+          BEFORE_SHA=$(git rev-parse HEAD~1)
+        fi
+
         echo "CHANGED_AGENTS<<EOF" >> $GITHUB_ENV
-        git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
+        git diff --name-only $BEFORE_SHA $CURRENT_SHA \
           | grep '^student/orch.*/agents/agent[^/]*' \
           | cut -d/ -f1-5 \
           | sort -u >> $GITHUB_ENV
@@ -37,7 +48,7 @@ jobs:
       run: |
         echo "CHANGED_AGENTS=$CHANGED_AGENTS"
         if [ -z "$CHANGED_AGENTS" ]; then
-          echo "No changed agents to deploy."
+          echo "✅ No changed agents to deploy."
           exit 0
         fi
 
