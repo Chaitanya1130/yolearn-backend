@@ -26,25 +26,31 @@ jobs:
     - name: Find changed agents
       id: find-agents
       run: |
-        BEFORE_SHA=${{ github.event.before }}
-        CURRENT_SHA=${{ github.sha }}
+        echo "🔍 Detecting changes..."
+        git fetch --unshallow || true
 
-        # Fallback if before SHA isn't available
-        if ! git cat-file -e $BEFORE_SHA^{commit}; then
-          echo "⚠️ BEFORE_SHA not found, using HEAD~1"
+        BEFORE_SHA="${{ github.event.before }}"
+        AFTER_SHA="${{ github.sha }}"
+
+        # Validate BEFORE_SHA
+        if ! git cat-file -e "$BEFORE_SHA"^{commit} 2>/dev/null; then
+          echo "⚠️ BEFORE_SHA is invalid, falling back to HEAD~1"
           BEFORE_SHA=$(git rev-parse HEAD~1)
         fi
 
-        echo "CHANGED_AGENTS<<EOF" >> $GITHUB_ENV
-        git diff --name-only $BEFORE_SHA $CURRENT_SHA \
+        echo "Comparing $BEFORE_SHA to $AFTER_SHA"
+        CHANGED_AGENTS=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" \
           | grep '^student/orch.*/agents/agent[^/]*' \
           | cut -d/ -f1-5 \
-          | sort -u >> $GITHUB_ENV
+          | sort -u)
+
+        echo "CHANGED_AGENTS<<EOF" >> $GITHUB_ENV
+        echo "$CHANGED_AGENTS" >> $GITHUB_ENV
         echo "EOF" >> $GITHUB_ENV
 
     - name: Deploy changed agents to Cloud Run
       run: |
-        echo "CHANGED_AGENTS=$CHANGED_AGENTS"
+        echo "🚀 Agents to deploy: $CHANGED_AGENTS"
         if [ -z "$CHANGED_AGENTS" ]; then
           echo "✅ No changed agents to deploy."
           exit 0
@@ -53,7 +59,7 @@ jobs:
         echo "$CHANGED_AGENTS" | while read agent_path; do
           [ -z "$agent_path" ] && continue
           agent_name=$(basename "$agent_path")
-          echo "🚀 Deploying $agent_name from $agent_path"
+          echo "🔧 Deploying $agent_name from $agent_path"
 
           gcloud builds submit "$agent_path" \
             --tag gcr.io/proj-459908/$agent_name
