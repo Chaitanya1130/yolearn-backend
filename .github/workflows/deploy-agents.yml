@@ -45,15 +45,25 @@ jobs:
           CHANGED_AGENTS=""
           if git cat-file -e "$BEFORE_SHA" 2>/dev/null && git cat-file -e "$AFTER_SHA" 2>/dev/null; then
             # Both SHAs exist, proceed with diff
-            CHANGED_AGENTS=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" \
-              | grep -E '^student/orch.*/agents/agent[^/]*/' 2>/dev/null \
-              | cut -d/ -f1-5 \
-              | sort -u || echo "")
+            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" | grep -E '^student/orch.*/agents/agent[^/]*/' 2>/dev/null || echo "")
+            
+            # Extract the agent directory paths (not file paths)
+            for file in $CHANGED_FILES; do
+              # Extract the directory part up to agent level (student/orchX/agents/agentY)
+              agent_dir=$(echo "$file" | grep -o 'student/orch[^/]*/agents/agent[^/]*' || echo "")
+              if [ ! -z "$agent_dir" ]; then
+                echo "$agent_dir" >> /tmp/changed_agents.txt
+              fi
+            done
+            
+            if [ -f /tmp/changed_agents.txt ]; then
+              CHANGED_AGENTS=$(sort -u /tmp/changed_agents.txt)
+              rm /tmp/changed_agents.txt
+            fi
           else
             # Fall back to finding all agents that match the pattern
             echo "Cannot perform git diff, finding all relevant agents..."
-            CHANGED_AGENTS=$(find student -path "student/orch*/agents/agent*" -type d -maxdepth 5 2>/dev/null \
-              | sort -u || echo "")
+            CHANGED_AGENTS=$(find student -path "student/orch*/agents/agent*" -type d -maxdepth 4 2>/dev/null | sort -u || echo "")
           fi
           
           # Export the CHANGED_AGENTS env var for the next step
