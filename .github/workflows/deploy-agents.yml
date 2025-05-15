@@ -27,32 +27,23 @@ jobs:
       id: find-agents
       run: |
         echo "🔍 Detecting changes..."
-        git fetch --unshallow || true
-
         BEFORE_SHA="${{ github.event.before }}"
         AFTER_SHA="${{ github.sha }}"
 
-        # Validate BEFORE_SHA
-        if ! git cat-file -e "$BEFORE_SHA"^{commit} 2>/dev/null; then
-          echo "⚠️ BEFORE_SHA is invalid, falling back to HEAD~1"
-          BEFORE_SHA=$(git rev-parse HEAD~1)
-        fi
-
         echo "Comparing $BEFORE_SHA to $AFTER_SHA"
+        
         CHANGED_AGENTS=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" \
-          | grep '^student/orch.*/agents/agent[^/]*' \
+          | grep '^student/orch.*/agents/agent[^/]*/' \
           | cut -d/ -f1-5 \
           | sort -u)
 
-        echo "CHANGED_AGENTS<<EOF" >> $GITHUB_ENV
-        echo "$CHANGED_AGENTS" >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
+        echo "CHANGED_AGENTS=$CHANGED_AGENTS" >> $GITHUB_ENV
 
     - name: Deploy changed agents to Cloud Run
       run: |
         echo "🚀 Agents to deploy: $CHANGED_AGENTS"
         if [ -z "$CHANGED_AGENTS" ]; then
-          echo "✅ No changed agents to deploy."
+          echo "No changed agents to deploy."
           exit 0
         fi
 
