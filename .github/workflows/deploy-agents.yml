@@ -1,8 +1,125 @@
+# name: Auto Deploy Agents to Cloud Run
+# on:
+#   push:
+#     paths:
+#       - 'student/orch*/agents/agent*/**'
+
+# jobs:
+#   deploy-agents:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+#         with:
+#           fetch-depth: 0  # Get full history to avoid 'bad object' errors
+
+#       - name: Authenticate to Google Cloud
+#         uses: google-github-actions/auth@v1
+#         with:
+#           credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+#           export_default_credentials: true  # Ensure credentials are properly exported
+
+#       - name: Set up gcloud CLI
+#         uses: google-github-actions/setup-gcloud@v1
+#         with:
+#           project_id: proj-459908
+
+#       - name: Find changed agents
+#         id: find-agents
+#         run: |
+#           echo "🔍 Detecting changes..."
+          
+#           # Default to using GitHub event data for commits
+#           BEFORE_SHA="${{ github.event.before }}"
+#           AFTER_SHA="${{ github.sha }}"
+          
+#           # Fallback in case event data is invalid
+#           if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+#             # Use the parent of current commit or default to last successful push
+#             echo "No valid before SHA, using parent commit..."
+#             BEFORE_SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
+#           fi
+          
+#           echo "Comparing $BEFORE_SHA to $AFTER_SHA"
+          
+#           # Try to get changed agents with error handling
+#           CHANGED_AGENTS=""
+#           if git cat-file -e "$BEFORE_SHA" 2>/dev/null && git cat-file -e "$AFTER_SHA" 2>/dev/null; then
+#             # Both SHAs exist, proceed with diff
+#             CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" | grep -E '^student/orch.*/agents/agent[^/]*/' 2>/dev/null || echo "")
+            
+#             # Extract the agent directory paths (not file paths)
+#             for file in $CHANGED_FILES; do
+#               # Extract the directory part up to agent level (student/orchX/agents/agentY)
+#               agent_dir=$(echo "$file" | grep -o 'student/orch[^/]*/agents/agent[^/]*' || echo "")
+#               if [ ! -z "$agent_dir" ]; then
+#                 echo "$agent_dir" >> /tmp/changed_agents.txt
+#               fi
+#             done
+            
+#             if [ -f /tmp/changed_agents.txt ]; then
+#               CHANGED_AGENTS=$(sort -u /tmp/changed_agents.txt)
+#               rm /tmp/changed_agents.txt
+#             fi
+#           else
+#             # Fall back to finding all agents that match the pattern
+#             echo "Cannot perform git diff, finding all relevant agents..."
+#             CHANGED_AGENTS=$(find student -path "student/orch*/agents/agent*" -type d -maxdepth 4 2>/dev/null | sort -u || echo "")
+#           fi
+          
+#           # Export the CHANGED_AGENTS env var for the next step
+#           echo "CHANGED_AGENTS<<EOF" >> $GITHUB_ENV
+#           echo "$CHANGED_AGENTS" >> $GITHUB_ENV
+#           echo "EOF" >> $GITHUB_ENV
+          
+#           # Print the list of changed agents for logging
+#           if [ -z "$CHANGED_AGENTS" ]; then
+#             echo "No changed agents detected"
+#           else
+#             echo "Changed agents:"
+#             echo "$CHANGED_AGENTS"
+#           fi
+
+#       - name: Deploy changed agents to Cloud Run
+#         run: |
+#           echo "🚀 Agents to deploy: $CHANGED_AGENTS"
+          
+#           if [ -z "$CHANGED_AGENTS" ]; then
+#             echo "No changed agents to deploy."
+#             exit 0
+#           fi
+          
+#           echo "$CHANGED_AGENTS" | while read agent_path; do
+#             [ -z "$agent_path" ] && continue
+            
+#             # Ensure the agent path exists
+#             if [ ! -d "$agent_path" ]; then
+#               echo "⚠️ Warning: $agent_path does not exist, skipping..."
+#               continue
+#             fi
+            
+#             agent_name=$(basename "$agent_path")
+#             echo "🔧 Deploying $agent_name from $agent_path"
+            
+#             # Set project explicitly for each command
+#             gcloud config set project proj-459908
+            
+#             # Try using direct deployment without Cloud Build
+#             echo "Deploying directly from source..."
+#             gcloud run deploy $agent_name \
+#               --source="$agent_path" \
+#               --platform=managed \
+#               --region=us-central1 \
+#               --allow-unauthenticated
+#           done
+
+
 name: Auto Deploy Agents to Cloud Run
+
 on:
   push:
     paths:
-      - 'student/orch*/agents/agent*/**'
+      - 'student/orch*/agents/**'
 
 jobs:
   deploy-agents:
@@ -29,50 +146,40 @@ jobs:
         run: |
           echo "🔍 Detecting changes..."
           
-          # Default to using GitHub event data for commits
           BEFORE_SHA="${{ github.event.before }}"
           AFTER_SHA="${{ github.sha }}"
           
-          # Fallback in case event data is invalid
           if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            # Use the parent of current commit or default to last successful push
             echo "No valid before SHA, using parent commit..."
             BEFORE_SHA=$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)
           fi
           
           echo "Comparing $BEFORE_SHA to $AFTER_SHA"
-          
-          # Try to get changed agents with error handling
+
           CHANGED_AGENTS=""
           if git cat-file -e "$BEFORE_SHA" 2>/dev/null && git cat-file -e "$AFTER_SHA" 2>/dev/null; then
-            # Both SHAs exist, proceed with diff
-            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" | grep -E '^student/orch.*/agents/agent[^/]*/' 2>/dev/null || echo "")
+            CHANGED_FILES=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" | grep -E '^student/orch.*/agents/[^/]*/' 2>/dev/null || echo "")
             
-            # Extract the agent directory paths (not file paths)
             for file in $CHANGED_FILES; do
-              # Extract the directory part up to agent level (student/orchX/agents/agentY)
-              agent_dir=$(echo "$file" | grep -o 'student/orch[^/]*/agents/agent[^/]*' || echo "")
+              agent_dir=$(echo "$file" | grep -o 'student/orch[^/]*/agents/[^/]*' || echo "")
               if [ ! -z "$agent_dir" ]; then
                 echo "$agent_dir" >> /tmp/changed_agents.txt
               fi
             done
-            
+
             if [ -f /tmp/changed_agents.txt ]; then
               CHANGED_AGENTS=$(sort -u /tmp/changed_agents.txt)
               rm /tmp/changed_agents.txt
             fi
           else
-            # Fall back to finding all agents that match the pattern
             echo "Cannot perform git diff, finding all relevant agents..."
-            CHANGED_AGENTS=$(find student -path "student/orch*/agents/agent*" -type d -maxdepth 4 2>/dev/null | sort -u || echo "")
+            CHANGED_AGENTS=$(find student -path "student/orch*/agents/*" -type d -maxdepth 4 2>/dev/null | sort -u || echo "")
           fi
-          
-          # Export the CHANGED_AGENTS env var for the next step
+
           echo "CHANGED_AGENTS<<EOF" >> $GITHUB_ENV
           echo "$CHANGED_AGENTS" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
-          
-          # Print the list of changed agents for logging
+
           if [ -z "$CHANGED_AGENTS" ]; then
             echo "No changed agents detected"
           else
@@ -92,21 +199,18 @@ jobs:
           echo "$CHANGED_AGENTS" | while read agent_path; do
             [ -z "$agent_path" ] && continue
             
-            # Ensure the agent path exists
             if [ ! -d "$agent_path" ]; then
               echo "⚠️ Warning: $agent_path does not exist, skipping..."
               continue
             fi
-            
+
             agent_name=$(basename "$agent_path")
             echo "🔧 Deploying $agent_name from $agent_path"
-            
-            # Set project explicitly for each command
+
             gcloud config set project proj-459908
-            
-            # Try using direct deployment without Cloud Build
+
             echo "Deploying directly from source..."
-            gcloud run deploy $agent_name \
+            gcloud run deploy "$agent_name" \
               --source="$agent_path" \
               --platform=managed \
               --region=us-central1 \
